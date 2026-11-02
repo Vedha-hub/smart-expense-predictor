@@ -1,0 +1,13 @@
+pandas>=2.0
+numpy>=1.24
+scikit-learn>=1.3
+joblib>=1.3
+statsmodels>=0.14
+fastapi>=0.110
+uvicorn[standard]>=0.27
+python-multipart>=0.0.9
+httpx>=0.27
+pytest>=8.0
+# Optional (heavier) forecasting models - install when you reach Step 7:
+# prophet>=1.1
+# tensorflow>=2.15

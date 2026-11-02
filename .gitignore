@@ -1,0 +1,12 @@
+venv/
+.venv/
+__pycache__/
+*.pyc
+.env
+node_modules/
+frontend/dist/
+models/*.joblib
+models/*.keras
+data/*.db
+.ipynb_checkpoints/
+.DS_Store
