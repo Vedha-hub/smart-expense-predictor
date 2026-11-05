@@ -164,10 +164,8 @@ python -m pytest -q tests
 
 | | |
 |---|---|
-| Email | `admin@expense.local` |
-| Password | `admin123` |
-
-> ⚠️ **Change this before deploying or sharing the app publicly.** A default password in a public repository is not secure.
+| Email | `weasadmin123@gmail.com` |
+| Password | `admin@123` |
 
 ---
 
