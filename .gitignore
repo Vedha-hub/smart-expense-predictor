@@ -10,3 +10,4 @@ models/*.keras
 data/*.db
 .ipynb_checkpoints/
 .DS_Store
+backend/reset_admin.py

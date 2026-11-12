@@ -10,17 +10,19 @@ from pydantic import BaseModel
 from backend import db
 from ml import anomaly, categorizer, clustering, features, forecast
 from ml.preprocess import clean_transactions
+from backend.accounts import router as accounts_router
+from backend.predictions import router as predictions_router
 
 @asynccontextmanager
 async def lifespan(_):
     db.init_db()
     yield
 
-
 app = FastAPI(title="Smart Expense & Spending Predictor", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173"],
                    allow_methods=["*"], allow_headers=["*"])
-
+app.include_router(accounts_router)
+app.include_router(predictions_router)
 
 class CategoryUpdate(BaseModel):
     category: str
