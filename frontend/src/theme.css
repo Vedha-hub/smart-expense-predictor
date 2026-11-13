@@ -104,6 +104,9 @@ body { font-family: Inter, "Segoe UI", system-ui, -apple-system, sans-serif; }
 .fx .seg { display: flex; gap: 6px; flex-wrap: wrap; }
 .fx .seg button { padding: 9px 14px; border-radius: 10px; border: 0; cursor: pointer; background: var(--surface2); color: var(--text); font-size: 14px; }
 .fx .seg button.on { background: var(--accent); color: #fff; }
+.fx select.mini { padding: 6px 8px; font-size: 13px; border-radius: 8px; }
+.fx .btn[disabled] { opacity: .6; cursor: wait; }
+.fx label.btn { display: inline-block; }
 .fx .ai-badge { font-size: 12px; color: var(--accent); }
 
 /* ---------- misc ---------- */

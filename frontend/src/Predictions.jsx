@@ -41,6 +41,9 @@ function Chart({ history, forecast }) {
 export default function Predictions({ token, categories }) {
   const [category, setCategory] = useState("");
   const [horizon, setHorizon] = useState(30);
+  const [method, setMethod] = useState("auto");
+  const [cmp, setCmp] = useState(null);
+  const [cmpBusy, setCmpBusy] = useState(false);
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
@@ -49,12 +52,18 @@ export default function Predictions({ token, categories }) {
   useEffect(() => {
     setLoading(true);
     setErr("");
-    const q = `/my/predictions?horizon=${horizon}` + (category ? `&category=${encodeURIComponent(category)}` : "");
+    const q = `/my/predictions?horizon=${horizon}&method=${method}` + (category ? `&category=${encodeURIComponent(category)}` : "");
     api(q, { token })
       .then(setData)
       .catch(() => setErr("Could not load predictions. Is the backend running?"))
       .finally(() => setLoading(false));
-  }, [token, category, horizon, reload]);
+  }, [token, category, horizon, method, reload]);
+
+  const compare = async () => {
+    setCmpBusy(true);
+    try { setCmp(await api("/my/model-comparison", { token })); } catch {}
+    setCmpBusy(false);
+  };
 
   const loadDemo = async () => {
     await api("/my/demo-data", { method: "POST", token });
@@ -81,6 +90,12 @@ export default function Predictions({ token, categories }) {
           <select value={horizon} onChange={(e) => setHorizon(+e.target.value)}>
             {[7, 14, 30, 60].map((h) => <option key={h} value={h}>Next {h} days</option>)}
           </select>
+          <select value={method} onChange={(e) => setMethod(e.target.value)}>
+            <option value="auto">Model: Auto</option>
+            <option value="prophet">Model: Prophet</option>
+            <option value="lstm">Model: LSTM</option>
+            <option value="baseline">Model: Baseline</option>
+          </select>
           <button className="btn ghost" onClick={loadDemo}>Load demo data</button>
         </div>
       </div>
@@ -101,6 +116,9 @@ export default function Predictions({ token, categories }) {
             </div>
             <div className="card" style={{ marginBottom: 16 }}>
               <h3>Spending forecast</h3>
+              {f.requested !== "auto" && f.requested !== f.method && (
+                <div className="alert warning"><span>⚠️</span><span>{f.requested.toUpperCase()} is not available on this server, so the {f.method} model was used instead.</span></div>
+              )}
               <Chart history={f.history} forecast={f.forecast} />
               <div className="sub">
                 Blue = actual spending, orange dashed = predicted. Error is measured on your last 4 weeks, so it appears once you have 90+ days of data.
@@ -113,6 +131,32 @@ export default function Predictions({ token, categories }) {
             <div className="note">{data.forecast_message}</div>
           </div>
         )}
+
+        <div className="card" style={{ marginBottom: 16 }}>
+          <div className="row" style={{ justifyContent: "space-between" }}>
+            <div>
+              <h3 style={{ margin: 0 }}>⚖️ Model comparison</h3>
+              <div className="sub">Each model predicts your last 4 weeks, then we measure the error. Lower is better.</div>
+            </div>
+            <button className="btn" onClick={compare} disabled={cmpBusy}>{cmpBusy ? "Evaluating…" : "Compare models"}</button>
+          </div>
+          {cmp && !cmp.ready && <div className="note" style={{ marginTop: 12 }}>{cmp.message}</div>}
+          {cmp && cmp.ready && (
+            <table className="tbl" style={{ marginTop: 10 }}>
+              <thead><tr><th>Model</th><th>Weekly error (WAPE)</th><th>Daily error (WAPE)</th><th>Avg daily miss (MAE)</th></tr></thead>
+              <tbody>
+                {cmp.results.map((r) => (
+                  <tr key={r.method}>
+                    <td style={{ textTransform: "capitalize" }}><b>{r.method}</b></td>
+                    {r.available
+                      ? <><td><b>{r.weekly_WAPE}%</b></td><td>{r.daily_WAPE}%</td><td>{inr(r.MAE)}</td></>
+                      : <td colSpan={3} className="sub">Not installed on this server{r.method === "lstm" ? " (needs: python -m pip install tensorflow)" : r.method === "prophet" ? " (needs: python -m pip install prophet)" : ""}</td>}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
 
         <div className="grid g2">
           <div className="card">

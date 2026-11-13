@@ -293,7 +293,7 @@ function Overview({ token, user, refreshKey, go }) {
 }
 
 /* ================= user: add expense ================= */
-function Transactions({ token, refreshKey, bump }) {
+function Transactions({ token, meta, refreshKey, bump }) {
   const [month, setMonth] = useState(thisMonth());
   const [rows, setRows] = useState([]);
   useEffect(() => { api(`/my/expenses?month=${month}`, { token }).then(setRows).catch(() => {}); }, [token, month, refreshKey]);
@@ -302,10 +302,17 @@ function Transactions({ token, refreshKey, bump }) {
     await api(`/my/expenses/${id}`, { method: "DELETE", token });
     bump();
   };
+  const relabel = async (id, category) => {
+    await api(`/my/expenses/${id}/category`, { method: "PATCH", token, body: { category } });
+    bump();
+  };
   return (
     <div className="card">
       <div className="row" style={{ justifyContent: "space-between", marginBottom: 8 }}>
-        <h3 style={{ margin: 0 }}>My expenses</h3>
+        <div>
+          <h3 style={{ margin: 0 }}>My expenses</h3>
+          <div className="sub">Wrong category? Change it in the dropdown. The AI learns from your corrections.</div>
+        </div>
         <input type="month" value={month} onChange={(e) => setMonth(e.target.value)} />
       </div>
       <div style={{ overflowX: "auto" }}>
@@ -314,7 +321,14 @@ function Transactions({ token, refreshKey, bump }) {
           <tbody>
             {rows.map((x) => (
               <tr key={x.id}>
-                <td>{x.date}</td><td>{x.merchant || "-"}</td><td><Chip cat={x.category} /></td><td>{x.payment_mode}</td>
+                <td>{x.date}</td><td>{x.merchant || "-"}</td>
+                <td>
+                  <select className="mini" value={x.category} onChange={(e) => relabel(x.id, e.target.value)}>
+                    {meta.categories.map((c) => <option key={c} value={c}>{ICONS[c]} {c}</option>)}
+                  </select>
+                  {x.corrected ? <span className="ai-badge" title="You corrected this"> ✎</span> : null}
+                </td>
+                <td>{x.payment_mode}</td>
                 <td className="num">{inr(x.amount)}</td>
                 <td><button className="link bad" onClick={() => del(x.id)}>Delete</button></td>
               </tr>
@@ -323,6 +337,51 @@ function Transactions({ token, refreshKey, bump }) {
           </tbody>
         </table>
       </div>
+    </div>
+  );
+}
+
+function ImportCard({ token, bump }) {
+  const [busy, setBusy] = useState(false);
+  const [res, setRes] = useState(null);
+  const [err, setErr] = useState("");
+  const upload = async (e) => {
+    const file = e.target.files[0];
+    e.target.value = "";
+    if (!file) return;
+    setBusy(true); setErr(""); setRes(null);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const r = await fetch("/api/my/import-csv", { method: "POST", headers: { Authorization: `Bearer ${token}` }, body: fd });
+      const d = await r.json();
+      if (!r.ok) throw new Error(typeof d.detail === "string" ? d.detail : "Upload failed");
+      setRes(d); bump();
+    } catch (ex) { setErr(ex.message); }
+    setBusy(false);
+  };
+  return (
+    <div className="card" style={{ marginBottom: 16 }}>
+      <div className="row" style={{ justifyContent: "space-between" }}>
+        <div>
+          <h3 style={{ margin: 0 }}>📄 Import a bank / UPI statement</h3>
+          <div className="sub">CSV with date, description and amount columns. We clean it, remove duplicates and auto-categorise every row.</div>
+        </div>
+        <label className="btn" style={{ opacity: busy ? 0.6 : 1 }}>
+          {busy ? "Importing…" : "Choose CSV file"}
+          <input type="file" accept=".csv" onChange={upload} disabled={busy} style={{ display: "none" }} />
+        </label>
+      </div>
+      {err && <div className="alert danger" style={{ marginTop: 12 }}><span>🚨</span><span>{err}</span></div>}
+      {res && (
+        <div className="alert ok" style={{ marginTop: 12 }}>
+          <span>✅</span>
+          <span>
+            Imported <b>{res.imported}</b> of {res.rows_in_file} rows. Cleaned out {res.removed_in_cleaning} invalid, skipped {res.duplicates_skipped} duplicates,
+            auto-categorised {res.auto_categorised}{res.needs_review ? `, and ${res.needs_review} marked "Other" for you to review below` : ""}.
+          </span>
+        </div>
+      )}
     </div>
   );
 }
@@ -339,7 +398,10 @@ function AddPage({ token, meta, refreshKey, bump }) {
     if (!f.merchant.trim() || touched) return;
     try {
       const d = await api(`/my/suggest-category?merchant=${encodeURIComponent(f.merchant)}`, { token });
-      if (d.category) { setF((x) => ({ ...x, category: d.category })); setAi(d.category); }
+      if (d.category) {
+        setF((x) => ({ ...x, category: d.category }));
+        setAi(d.source === "rules" ? `auto-categorised as ${d.category} (keyword match)` : `auto-categorised as ${d.category} (${d.confidence}% sure)`);
+      } else setAi("not sure about this one, please pick a category");
     } catch {}
   };
   const pick = (c) => { setF({ ...f, category: c }); setTouched(true); setAi(null); };
@@ -369,7 +431,7 @@ function AddPage({ token, meta, refreshKey, bump }) {
           <div style={{ display: "grid", gap: 16 }}>
             <div className="field full"><label>Amount (₹)</label>
               <input className="amount-input" type="number" min="1" step="0.01" placeholder="0" value={f.amount} onChange={(e) => setF({ ...f, amount: e.target.value })} required /></div>
-            <div className="field full"><label>Merchant / description {ai && <span className="ai-badge">✨ auto-categorised as {ai}</span>}</label>
+            <div className="field full"><label>Merchant / description {ai && <span className="ai-badge">✨ {ai}</span>}</label>
               <input placeholder="e.g. Zomato, Uber, Netflix" value={f.merchant} onChange={(e) => setF({ ...f, merchant: e.target.value })} onBlur={suggest} /></div>
             <div className="row">
               <div className="field full" style={{ flex: 1 }}><label>Date</label><input type="date" value={f.date} onChange={(e) => setF({ ...f, date: e.target.value })} required /></div>
@@ -387,7 +449,8 @@ function AddPage({ token, meta, refreshKey, bump }) {
         </div>
         <div style={{ marginTop: 18 }}><button className="btn">Save expense</button></div>
       </form>
-      <Transactions token={token} refreshKey={refreshKey} bump={bump} />
+      <ImportCard token={token} bump={bump} />
+      <Transactions token={token} meta={meta} refreshKey={refreshKey} bump={bump} />
     </>
   );
 }
@@ -416,9 +479,45 @@ function BudgetsPage({ token, meta, refreshKey, bump }) {
     await load(); bump();
   };
 
+  const [sug, setSug] = useState(null);
+  const [sugBusy, setSugBusy] = useState(false);
+  const recommend = async () => {
+    setSugBusy(true);
+    try { setSug(await api("/my/budget-suggestions", { token })); } catch {}
+    setSugBusy(false);
+  };
+  const apply = async (items) => {
+    for (const x of items) await api("/my/budgets", { method: "PUT", token, body: { category: x.category, monthly_limit: x.suggested } });
+    setSug(null);
+    await load(); bump();
+  };
+
   return (
     <>
-      <Top title="Budgets" sub="Set a monthly limit per category. You get alerts at 80% and when you go over." />
+      <Top title="Budgets" sub="Set a monthly limit per category. You get alerts at 80% and when you go over.">
+        <button className="btn" onClick={recommend} disabled={sugBusy}>{sugBusy ? "Thinking…" : "✨ Recommend budgets for me"}</button>
+      </Top>
+      {sug && (
+        <div className="card" style={{ marginBottom: 16 }}>
+          <div className="row" style={{ justifyContent: "space-between" }}>
+            <div>
+              <h3 style={{ margin: 0 }}>Personalised recommendations</h3>
+              <div className="sub">{sug.ready ? `Based on your average of ${sug.basis_months} month(s) and your spending group.` : sug.message}</div>
+            </div>
+            {sug.ready && <div className="row"><button className="btn" onClick={() => apply(sug.suggestions)}>Apply all</button><button className="btn ghost" onClick={() => setSug(null)}>Dismiss</button></div>}
+          </div>
+          {sug.ready && (
+            <table className="tbl" style={{ marginTop: 10 }}>
+              <thead><tr><th>Category</th><th>Your monthly average</th><th>Suggested limit</th><th>Why</th></tr></thead>
+              <tbody>
+                {sug.suggestions.map((x) => (
+                  <tr key={x.category}><td>{ICONS[x.category]} {x.category}</td><td>{inr(x.avg_monthly)}</td><td><b>{inr(x.suggested)}</b></td><td className="sub">{x.reason}</td></tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
       <div className="grid g3">
         {meta.categories.map((c) => {
           const lim = budgets[c];
@@ -492,6 +591,37 @@ function UserApp({ user, token, setUser, onLogout, theme, setTheme }) {
 }
 
 /* ================= admin ================= */
+function RetrainCard({ token }) {
+  const [res, setRes] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const run = async () => {
+    setBusy(true); setErr(""); setRes(null);
+    try { setRes(await api("/admin/retrain", { method: "POST", token })); } catch (ex) { setErr(ex.message); }
+    setBusy(false);
+  };
+  return (
+    <div className="card">
+      <div className="row" style={{ justifyContent: "space-between" }}>
+        <div>
+          <h3 style={{ margin: 0 }}>🧠 NLP feedback loop</h3>
+          <div className="sub">Retrain the transaction classifier using all user expenses. Categories users corrected count extra.</div>
+        </div>
+        <button className="btn" onClick={run} disabled={busy}>{busy ? "Training…" : "Retrain model"}</button>
+      </div>
+      {err && <div className="alert danger" style={{ marginTop: 12 }}><span>🚨</span><span>{err}</span></div>}
+      {res && (
+        <div className="grid g4" style={{ marginTop: 14, marginBottom: 0 }}>
+          <div className="insight"><div className="sub">Trained on</div><b>{res.trained_on} rows · {res.unique_merchants} merchants</b></div>
+          <div className="insight"><div className="sub">User corrections used</div><b>{res.user_corrections}</b></div>
+          <div className="insight"><div className="sub">Accuracy, known merchants</div><b>{res.accuracy}%</b></div>
+          <div className="insight"><div className="sub">Accuracy, never-seen merchants</div><b>{res.unseen_accuracy ?? "n/a"}{res.unseen_accuracy != null ? "%" : ""}</b></div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function AdminOverview({ token }) {
   const [stats, setStats] = useState(null);
   const [over, setOver] = useState([]);
@@ -512,7 +642,8 @@ function AdminOverview({ token }) {
           <div key={l} className="card kpi"><div className="ico">{i}</div><div><div className="lbl">{l}</div><div className="val">{v}</div></div></div>
         ))}
       </div>
-      <div className="card">
+      <RetrainCard token={token} />
+      <div className="card" style={{ marginTop: 16 }}>
         <h3>🚨 Users over budget this month ({over.length})</h3>
         {over.length === 0 && <div className="alert ok"><span>✅</span><span>No users are overspending right now.</span></div>}
         {over.map((o) => (

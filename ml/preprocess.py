@@ -20,7 +20,7 @@ def clean_transactions(df: pd.DataFrame) -> pd.DataFrame:
     if missing:
         raise ValueError(f"CSV is missing required columns: {missing}")
     df["date"] = pd.to_datetime(df["date"], errors="coerce")
-    df["amount"] = pd.to_numeric(df["amount"].astype(str).str.replace(r"[₹,\s]", "", regex=True),
+    df["amount"] = pd.to_numeric(df["amount"].astype(str).str.replace(r"(?i)rs\.?|inr|[₹,\s]", "", regex=True),
                                  errors="coerce")
     df = df.dropna(subset=["date", "amount", "description"])
     df = df[df["amount"] > 0]
