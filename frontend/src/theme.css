@@ -124,6 +124,8 @@ body { font-family: Inter, "Segoe UI", system-ui, -apple-system, sans-serif; }
 .fx .insight { padding: 12px 14px; border-radius: 12px; background: var(--surface2); margin-bottom: 8px; line-height: 1.4; }
 .fx .note { background: var(--surface2); color: var(--muted); padding: 14px; border-radius: 12px; }
 .fx .budget-card { display: flex; gap: 16px; align-items: center; }
+.fx .bcard { display: flex; flex-direction: column; }
+.fx .bcard > .row { margin-top: auto; }
 .fx .stat-big { font-size: 30px; font-weight: 800; letter-spacing: -.5px; }
 
 /* ---------- login ---------- */

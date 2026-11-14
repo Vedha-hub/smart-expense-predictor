@@ -95,6 +95,8 @@ check("Anomaly detection flags unusual transactions", len(agg["anomalies"]) > 0,
 check("Spending clusters produce behaviour groups with tips", bool(agg["clusters"] and agg["clusters"]["clusters"]))
 sug = c.get("/api/my/budget-suggestions", headers=H).json()
 check("Personalised budget recommendations", sug["ready"] and len(sug["suggestions"]) > 0)
+rent = next((x for x in sug["suggestions"] if x["category"] == "Rent"), None)
+check("Budget recommendations never go below a fixed bill (Rent stays >= 8000)", bool(rent) and rent["suggested"] >= 8000, str(rent and rent["suggested"]))
 
 # -- feedback loop
 eid = rows[0]["id"]

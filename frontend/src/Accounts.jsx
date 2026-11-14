@@ -524,7 +524,7 @@ function BudgetsPage({ token, meta, refreshKey, bump }) {
           const pct = lim ? (spent(c) / lim) * 100 : 0;
           const color = !lim ? "var(--muted)" : pct > 100 ? "var(--bad)" : pct >= 80 ? "var(--warn)" : "var(--good)";
           return (
-            <div key={c} className="card">
+            <div key={c} className="card bcard">
               <div className="budget-card" style={{ marginBottom: 14 }}>
                 <Ring pct={pct} size={78} stroke={9} color={color}><b>{lim ? `${Math.round(pct)}%` : "–"}</b></Ring>
                 <div><b style={{ fontSize: 16 }}>{ICONS[c]} {c}</b><div className="sub">{inr(spent(c))} spent this month</div>{lim && <div className="sub">Limit {inr(lim)}</div>}</div>

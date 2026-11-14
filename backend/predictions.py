@@ -369,8 +369,13 @@ def budget_suggestions(user=Depends(current_user)):
     df["month"] = df["date"].str[:7]
     months = sorted(df["month"].unique())
     now = datetime.now().strftime("%Y-%m")
-    use = [m for m in months if m != now] or months
-    avg = df[df["month"].isin(use)].groupby("category")["amount"].sum() / len(use)
+    use = [m for m in months if m != now]            # the current month is still incomplete
+    if use and df["date"].min()[8:10] != "01" and use[0] == df["date"].min()[:7]:
+        use = use[1:]                                 # data starts mid-month, so the first month is partial
+    use = use or [m for m in months if m != now] or months
+    monthly = (df[df["month"].isin(use)]
+               .pivot_table(index="month", columns="category", values="amount", aggfunc="sum", fill_value=0.0))
+    avg, med = monthly.mean(), monthly.median()
 
     # the user's behaviour group (K-Means on monthly category shares) decides which category to trim hardest
     focus = None
@@ -392,7 +397,8 @@ def budget_suggestions(user=Depends(current_user)):
         if a < 50 or cat not in CATEGORIES:
             continue
         if cat in FIXED:
-            factor, why = 1.0, "Fixed cost: set to your usual monthly amount."
+            a = max(a, float(med.get(cat, a)))        # typical bill, not dragged down by an odd month
+            factor, why = 1.10, "Fixed cost: your usual monthly bill plus a 10% buffer."
         elif cat == focus:
             factor = 0.85
             why = clustering.TIPS.get(cat, f"{cat} is your biggest flexible spend.") + " Target: 15% lower."
