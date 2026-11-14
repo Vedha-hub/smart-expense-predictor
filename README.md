@@ -1,228 +1,191 @@
 # Smart Expense & Spending Predictor
 
-A personal-finance web app that turns raw transactions into forward-looking insight: it **categorises** expenses with NLP, **forecasts** future spending, **flags unusual transactions**, groups months into **spending clusters**, and **warns users when they overspend**.
+A web app that turns everyday expenses into **forecasts, alerts and monthly reviews**. Users record expenses (by hand or from a bank/UPI statement), see where their money goes, set budgets per category, and get early warnings *before* they overspend. An admin panel monitors users and retrains the NLP model.
 
-> **D. Y. Patil International University** — School of Computer Science Engineering and Applications
-> B.Tech CSE (AIML), Third Year, Sem V (2026-27) · Subject: *Foundations of Artificial Intelligence and Machine Learning (CSE3001)*
+Built for **Foundations of AI & ML (CSE3001)**, B.Tech CSE (AIML), D. Y. Patil International University, Akurdi, Pune.
 
 ---
 
 ## Features
 
 **For users**
-- Sign up / log in, with a profile (monthly income and savings goal)
-- Add expenses by hand (date, description, amount, payment mode); the category is **auto-detected** by the NLP model and can be corrected
-- Upload a bank/UPI statement as CSV, or load sample data to try the app
-- 10 spending categories and **per-category monthly budgets**
-- **Overspend alerts**: a warning when you approach a limit and an alert when you exceed it, including a month-end projection
-- **Monthly review**: spent so far, projected spend, remaining income and progress toward the savings goal
-- Dashboard: KPI cards, category breakdown, spending **forecast** (Prophet, LSTM or baseline, selectable), anomaly list and cluster-based budgeting tips
-- Corrections feed back into the classifier ("Retrain" button)
+- Sign up, create a profile (monthly income, savings goal)
+- Record expenses across 10 categories, or **import a bank/UPI statement (CSV)**: rows are cleaned, de-duplicated and auto-categorised
+- **AI auto-categorisation** from the merchant name (unsure cases are marked "Other" for review)
+- Change any category in the table. Your corrections are stored and used to retrain the model
+- **Budgets per category** with live progress rings, plus **personalised budget recommendations** from your own history
+- **Monthly review**: spend vs last month, projected month-end, income left, daily spending chart, smart insights
+- **Financial health score** (0 to 100)
+- **Early overspending alerts** at 80% of a budget, when a limit is exceeded, or when the current pace will exceed it
+- **Predictions**: spending forecast (Prophet / LSTM / Holt-Winters baseline), unusual-expense detection, spending groups with tips, and a model comparison table
+- Dark and light mode
 
 **For admins**
-- Admin login with a separate panel: platform stats, users who are over budget, enable / disable / delete accounts
+- Platform stats, users currently over budget, spending by category and month
+- Search, view, disable or delete users
+- **Retrain the NLP model** from all expenses (user-corrected labels count extra) and see its accuracy
 
 ---
 
 ## How it works
 
 ```
- CSV / manual entry
-        │
-        ▼
- Preprocessing ──► NLP categorisation ──► Feature engineering
- (clean, dedupe,    (TF-IDF + Logistic      (daily series, rolling
-  normalise names)   Regression)             means, lags, weekday)
-                                                   │
-                  ┌────────────────────────────────┼───────────────────────────┐
-                  ▼                                ▼                           ▼
-         Forecasting                       Anomaly detection            Spending clusters
-   (Prophet / LSTM / Holt-Winters)    (Isolation Forest + z-score)   (K-Means on monthly shares)
-                  └────────────────────────────────┼───────────────────────────┘
-                                                   ▼
-                             SQLite storage ──► FastAPI REST API ──► React dashboard
-                                                                       │
-                                  user corrections ◄───────────────────┘
+Data sources            Bank/UPI CSV  ·  manual entry  ·  synthetic demo data
+      │
+Ingestion & cleaning    ml/preprocess.py     dates, amounts (₹ / Rs / INR), missing values,
+      │                                      merchant normalisation, de-duplication
+NLP categorisation      ml/categorizer.py    TF-IDF (word + character n-grams) + Logistic Regression
+      │                 backend/predictions.py   confidence threshold → keyword rules → "Other"
+Feature engineering     ml/features.py       daily series, rolling stats, category shares
+      │
+Modelling (parallel)    ml/forecast.py       Prophet · LSTM (ml/lstm_model.py) · Holt-Winters baseline
+                        ml/anomaly.py        Isolation Forest + per-category z-score
+                        ml/clustering.py     K-Means on monthly category shares → tips
+      │
+Storage                 SQLite (data/accounts.db): users, expenses, budgets, cached predictions
+      │
+API layer               FastAPI (backend/)   REST endpoints, session-token auth
+      │
+Dashboard               React + Vite (frontend/)   user app and admin panel
+      └── user corrections flow back into training data to improve the classifier
 ```
 
-| Stage | File | Technique |
+### Models and rules
+
+| Part | Method | Notes |
 |---|---|---|
-| Preprocessing | `ml/preprocess.py` | parsing, missing values, deduplication, merchant-name normalisation |
-| Categorisation | `ml/categorizer.py` | TF-IDF (word + character n-grams) + Logistic Regression |
-| Features | `ml/features.py` | daily series, rolling means, lags, weekend flag, category shares |
-| Forecasting | `ml/forecast.py`, `ml/lstm_model.py` | Prophet, LSTM, Holt-Winters baseline (automatic fallback) |
-| Anomalies | `ml/anomaly.py` | Isolation Forest + per-category z-score |
-| Clusters | `ml/clustering.py` | K-Means over monthly category shares, with budget tips |
-
----
-
-## Tech stack
-
-- **ML:** Python, pandas, NumPy, scikit-learn, statsmodels, Prophet and TensorFlow/Keras (the last two optional)
-- **Backend:** FastAPI, Uvicorn, SQLite
-- **Frontend:** React 18, Vite, Recharts
-
----
-
-## Project structure
-
-```
-smart-expense-predictor/
-├── backend/
-│   ├── main.py            # FastAPI app and routes
-│   ├── db.py              # SQLite storage for transactions and budgets
-│   └── accounts.py        # signup/login, profiles, budgets, monthly review, admin API
-├── ml/                    # preprocessing, categoriser, forecasting, anomalies, clustering
-├── frontend/
-│   ├── src/
-│   │   ├── main.jsx
-│   │   ├── Accounts.jsx   # login/signup, user dashboard, admin panel
-│   │   ├── App.jsx, api.js, styles.css
-│   │   └── components/    # charts, alerts, transactions table, etc.
-│   └── vite.config.js     # proxies /api to the backend on port 8000
-├── data/                  # sample_transactions.csv (databases are git-ignored)
-├── models/                # trained model files (git-ignored)
-├── tests/
-├── docs/GUIDE.md          # full build guide
-└── requirements.txt
-```
+| Categoriser | TF-IDF + Logistic Regression | Below 80% confidence it falls back to keyword rules, then to "Other" |
+| Forecast | Prophet, LSTM, Holt-Winters | `Auto` uses Prophet, then the baseline if unavailable. Needs 14+ days of data |
+| Forecast evaluation | 4-week hold-out | MAE and WAPE (total absolute error ÷ total actual spend). Needs 90+ days |
+| Anomalies | Isolation Forest + z-score > 2 | Flags unusually *high* expenses. Needs 20+ expenses |
+| Spending groups | K-Means (k = 3) | On monthly category shares. Needs 2+ months |
+| Budget recommendations | Average of complete months | Fixed costs (Rent, Education, Utilities, Health): usual bill + 10%. Biggest flexible category: 15% lower. Others: 5% lower |
+| Health score | 40 pts savings rate · 40 pts budget discipline · 20 pts trend vs last month | Heuristic defined by this project |
 
 ---
 
 ## Getting started
 
-**Requirements:** Python 3.10 – 3.12 (3.11 recommended), Node.js 18+, Git.
+### Prerequisites
+- **Python 3.11** (recommended: Prophet and TensorFlow have wheels for it)
+- **Node.js 18+**
 
-### 1. Clone
-
+### 1. Clone and set up Python
 ```bash
 git clone https://github.com/Vedha-hub/smart-expense-predictor.git
 cd smart-expense-predictor
-git checkout dev
+
+python -m venv venv
+# Windows PowerShell
+.\venv\Scripts\Activate.ps1
+# macOS / Linux
+source venv/bin/activate
+
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
 ```
+The app needs: `fastapi uvicorn pandas numpy scikit-learn statsmodels joblib python-multipart prophet`.
+**Optional (enables the LSTM model):** `python -m pip install tensorflow`
 
-### 2. Backend
+### 2. Train the categoriser (once)
+The trained model file is not committed, so create it from the sample data:
+```bash
+python -m ml.train_all
+```
+If `data/sample_transactions.csv` is missing, run `python -m ml.generate_data` first.
 
+### 3. Set the admin account (before the first run)
+An admin is created automatically the first time the database is created. Set your own credentials first:
 ```powershell
 # Windows PowerShell
-python -m venv venv
-venv\Scripts\Activate.ps1
-pip install -r requirements.txt
-$env:PYTHONPATH = "."
-python -m ml.train_all
-python -m uvicorn backend.main:app --reload --port 8000
+$env:ADMIN_EMAIL = "you@example.com"
+$env:ADMIN_PASSWORD = "choose-a-strong-password"
 ```
-
 ```bash
 # macOS / Linux
-python3 -m venv venv && source venv/bin/activate
-pip install -r requirements.txt
-export PYTHONPATH=.
-python -m ml.train_all
-python -m uvicorn backend.main:app --reload --port 8000
+export ADMIN_EMAIL="you@example.com"
+export ADMIN_PASSWORD="choose-a-strong-password"
 ```
+If you skip this, the placeholders `admin@expense.local` / `change-me-now` are used. **Change them.** Credentials only apply when the database has no admin yet.
 
-Interactive API docs: <http://127.0.0.1:8000/docs>
-
-> Run `uvicorn` as `python -m uvicorn` from the activated `venv`. Otherwise Windows may pick up a different Python that lacks the packages.
-
-### 3. Frontend (second terminal)
-
+### 4. Run (two terminals)
 ```bash
+# Terminal 1: backend, from the project root
+python -m uvicorn backend.main:app --reload --port 8000
+
+# Terminal 2: frontend
 cd frontend
 npm install
 npm run dev
 ```
+Open **http://localhost:5173**. Interactive API docs are at **http://localhost:8000/docs**.
 
-Open <http://localhost:5173>. Keep the backend running at the same time.
+---
 
-### 4. Optional: Prophet and LSTM forecasting
+## Trying it out
+1. Sign up as a new user (income ₹50,000, savings goal ₹5,000).
+2. **Predictions → Load demo data** (about 6 months of realistic expenses, loaded once per account).
+3. **Budgets → Recommend budgets for me → Apply all**.
+4. **Add expense**: type `Zomato` and click out of the box to see auto-categorisation. Try importing a CSV with `date`, `description`, `amount` columns.
+5. Log in as admin to see platform stats and retrain the model.
 
+---
+
+## Tests
 ```bash
-pip install prophet tensorflow
+python tests/test_abstract.py
+```
+Runs **26 checks** covering every claim in the project abstract (import and cleaning, categorisation, budgets and alerts, forecasting with Prophet and LSTM, anomalies, clusters, recommendations, the corrections loop, admin and security). It uses a temporary database and a temporary copy of the model, so your real data is never touched.
+`tests/test_api.py` covers the original single-dataset API.
+
+---
+
+## API overview
+All user endpoints need `Authorization: Bearer <token>` from `/api/auth/login`.
+
+| Area | Endpoints |
+|---|---|
+| Auth and profile | `POST /api/auth/register` · `POST /api/auth/login` · `POST /api/auth/logout` · `GET/PUT /api/me` |
+| Expenses | `GET/POST /api/my/expenses` · `PUT/DELETE /api/my/expenses/{id}` · `PATCH /api/my/expenses/{id}/category` · `POST /api/my/import-csv` |
+| Budgets and review | `GET/PUT /api/my/budgets` · `DELETE /api/my/budgets/{category}` · `GET /api/my/review` · `GET /api/my/alerts` · `GET /api/my/budget-suggestions` |
+| ML | `GET /api/my/predictions` · `GET /api/my/model-comparison` · `GET /api/my/suggest-category` · `POST /api/my/demo-data` |
+| Admin | `GET /api/admin/stats` · `GET /api/admin/users` · `PATCH/DELETE /api/admin/users/{id}` · `GET /api/admin/users/{id}/review` · `GET /api/admin/overspenders` · `POST /api/admin/retrain` |
+
+The original single-dataset endpoints (`/api/upload`, `/api/summary`, `/api/forecast`, and so on) are still in `backend/main.py`. They power the first version of the dashboard (`frontend/src/App.jsx`), which is no longer the app's entry point.
+
+---
+
+## Project structure
+```
+backend/      FastAPI app: main.py, accounts.py (auth, expenses, budgets, review, admin),
+              predictions.py (ML endpoints, CSV import, corrections, recommendations), db.py
+ml/           preprocess · categorizer · features · forecast · lstm_model · anomaly · clustering
+              generate_data · train_all
+frontend/src/ Accounts.jsx (app shell, user and admin pages) · Predictions.jsx · ui.jsx · theme.css
+data/         sample_transactions.csv (SQLite databases are created here, git-ignored)
+models/       trained categoriser (git-ignored, created by ml.train_all)
+tests/        test_abstract.py · test_api.py
+docs/         project notes
 ```
 
-Both are optional. Without them the app automatically falls back to the Holt-Winters baseline, and the chart shows which model was actually used.
-
-### 5. Run the tests
-
-```bash
-python -m pytest -q tests
-```
-
 ---
 
-## Using the app
+## Results and honest limitations
 
-1. **Sign up** (or log in), then fill in your income and savings goal under your profile.
-2. **Add expenses**, or click **Load sample data** to see the full dashboard immediately.
-3. **Set budgets** per category. Add an expense that pushes you past the limit and the alert appears.
-4. Open the **forecast** and pick a model and horizon.
-5. **Correct** any wrong category in the transactions table, then press **Retrain** so the classifier learns from you.
+- **Categoriser accuracy.** On the synthetic dataset it scores **100% on merchants it has seen** but only about **27% on merchants it has never seen** (the dataset has just 44 distinct merchants, so the model largely memorises names). The confidence threshold, keyword rules and the user-correction retraining loop exist to cover new merchants. Real bank data will need a larger and more varied training set.
+- **Forecast accuracy.** Personal spending is lumpy (rent, one-off purchases), so error stays high. On one synthetic demo account the weekly WAPE was about **44% (Prophet), 46% (baseline) and 51% (LSTM)**. The models are close, so none clearly wins. Results vary by account.
+- **Synthetic data.** Demo data is generated, not real transactions.
+- **Security.** Passwords are hashed (PBKDF2) but session tokens do not expire, CORS allows only `localhost:5173`, and SQLite is a single local file. This is a college prototype, not production-hardened. Use HTTPS, token expiry and a real database before any real deployment.
+- **Optional models.** LSTM needs TensorFlow, and Prophet needs its own install. The app falls back to the baseline and says so on screen.
 
-**Admin:** the project ships with a default admin account for demos.
-
-| | |
-|---|---|
-| Email | `admin@expense.local` |
-| Password | `admin123` |
-
-> ⚠️ **Change this before deploying or sharing the app publicly.** A default password in a public repository is not secure.
-
----
-
-## Results and limitations
-
-Numbers below come from the **synthetic sample dataset** (`data/sample_transactions.csv`). Replace them with results on real, labelled data before reporting them.
-
-| Component | Result on sample data | Notes |
-|---|---|---|
-| Categoriser | ~100% accuracy (random split) | Optimistic: the same ~30 merchants appear in train and test. When whole merchants were held out in a one-off test, accuracy fell to roughly 47%, so a real labelled dataset is needed for honest numbers |
-| Forecast (Holt-Winters baseline) | Daily WAPE ≈ 69%, weekly WAPE ≈ 34% | Daily spending is very spiky, so weekly totals are the more meaningful measure |
-| Prophet / LSTM | *add your measured values here* | Compare against the baseline above |
-
-Other limitations:
-- Small personal datasets limit what a forecaster can learn, and one-off large purchases are unpredictable.
-- Sessions and authentication are intended for a coursework demo, not production use.
-- Never commit real bank statements. `data/*.db`, `venv/` and `node_modules/` are git-ignored.
-
----
-
-## Troubleshooting
-
-| Problem | Fix |
-|---|---|
-| `ModuleNotFoundError: No module named 'ml'` | Run from the project root with `PYTHONPATH` set to `.` |
-| `ModuleNotFoundError: numpy` (or pandas) | The wrong Python is running. Activate `venv` and use `python -m uvicorn ...` |
-| Dashboard shows "Request failed" | The backend is not running on port 8000 |
-| `npm` is not recognised | Install Node.js LTS, then restart the terminal or VS Code |
-| PowerShell blocks `Activate.ps1` | `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` |
-| Forecast says the baseline was used | Prophet or TensorFlow is not installed in the active environment |
+## Future work
+- Direct bank API / account-aggregator integration
+- Mobile app
+- Train the categoriser on a larger corpus of real merchant data
+- Token expiry, HTTPS and a managed database for deployment
 
 ---
 
 ## Team
-
-| Name | Contribution |
-|---|---|
-| Vedhavathi Chennupati | *e.g. data and NLP* |
-| Payal Mahajan | *e.g. forecasting and analytics* |
-| Sanika Nikam | *e.g. backend and frontend* |
-
-## Roadmap
-
-- Bank / Account Aggregator API integration
-- Per-user personalised classifier and forecasts
-- Mobile-friendly layout and notifications
-- Stronger authentication (hashed credentials, token expiry, password reset)
-
-## Contributing (team workflow)
-
-- Never commit directly to `main` or `dev`.
-- Create a branch per task: `git checkout -b feature/<short-name>`.
-- Commit messages: `feat:`, `fix:`, `docs:`, `test:`.
-- Open a pull request into `dev` and get a teammate to review it. Merge `dev` into `main` only when the demo works.
-
-## License
-
-Academic project. Add a licence (for example MIT) if you plan to share the code publicly.
+Vedhavathi Chennupati · Payal Mahajan · Sanika Nikam
+School of Computer Science Engineering and Applications, D. Y. Patil International University, Akurdi, Pune.
